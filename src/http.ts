@@ -1,6 +1,9 @@
 import * as http from 'http';
-import { BackendManager, GenArgs } from './core.js';
+import { Config } from './config.js';
+import { BackendManager } from './core.js';
+import { GenArgs, BackendMessage } from './types.js';
 import { EventEmitter } from 'events';
+import { Log } from './utils.js';
 
 /**
  * Minimal HTTP server for VS Code extension communication.
@@ -24,7 +27,7 @@ export class HttpServer {
         return;
       }
 
-      // SSE Endpoint for progress
+      // SSE Endpoint for progress and logs
       if (req.url === '/events') {
         res.writeHead(200, {
           'Content-Type': 'text/event-stream',
@@ -32,12 +35,21 @@ export class HttpServer {
           'Connection': 'keep-alive'
         });
         
-        const listener = (data: any) => {
+        const messageListener = (data: any) => {
           res.write(`data: ${JSON.stringify(data)}\n\n`);
         };
 
-        this.events.on('message', listener);
-        req.on('close', () => this.events.removeListener('message', listener));
+        const logListener = (logEntry: any) => {
+          res.write(`data: ${JSON.stringify({ status: 'log', ...logEntry })}\n\n`);
+        };
+
+        this.events.on('message', messageListener);
+        Log.onLog(logListener);
+
+        req.on('close', () => {
+          this.events.removeListener('message', messageListener);
+          Log.offLog(logListener);
+        });
         return;
       }
 
@@ -66,7 +78,7 @@ export class HttpServer {
     });
 
     server.listen(port, '127.0.0.1', () => {
-        console.error(`[HttpServer] Listening on http://127.0.0.1:${port}`);
+        Log.info(`HTTP Server listening on http://127.0.0.1:${port}`);
     });
   }
 }

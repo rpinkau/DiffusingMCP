@@ -20,21 +20,27 @@ call npm install
 
 echo [3/5] Baue das Projekt...
 call npm run build
+if %errorlevel% neq 0 (
+    echo [ERROR] Build fehlgeschlagen. Abbruch!
+    pause
+    exit /b 1
+)
 
 echo [4/5] Installiere globales Kommando (Link)...
 call npm link
 
-echo [5/5] Richtie Windows-Autostart ein...
+echo [5/5] Starte den MCP-Daemon...
+call pm2 delete diffusing-mcp 2>nul
+call pm2 start build/daemon.js --name diffusing-mcp --watch
+
+echo [6/5] Richtie Windows-Autostart ein...
 call pm2-startup install
 call pm2 save
 
 echo ======================================================
 echo SETUP ERFOLGREICH!
-echo Die Kapsel ist jetzt gebuendelt (gepackt).
-echo [TIPP] Du kannst jetzt den 'node_modules'-Ordner loeschen,
-echo da alles Wichtige in 'build/index.js' steckt.
+echo Die Kapsel läuft nun im Hintergrund (pm2 status).
 echo.
 echo - Logs ansehen: pm2 logs diffusing-mcp
-echo - Status pruefen: pm2 status
+echo - Status prüfen: pm2 status
 echo ======================================================
-pause
