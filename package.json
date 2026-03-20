@@ -1,0 +1,24 @@
+{
+  "name": "diffusing-mcp-capsule",
+  "version": "1.0.0",
+  "description": "Standalone MCP Capsule for Diffusing Image Generation",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "diffusing-mcp": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=build/index.js --target=node22 --banner:js=\"#!/usr/bin/env node\" --allow-overwrite",
+    "start": "node build/index.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "esbuild": "^0.20.1"
+  }
+}
