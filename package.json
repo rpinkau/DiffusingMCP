@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc && esbuild src/index.ts src/daemon.ts --bundle --platform=node --format=esm --outdir=build --target=node22 \"--banner:js=#!/usr/bin/env node\"",
+    "compile": "npm run build",
     "start": "node build/daemon.js",
     "dev": "tsc --watch"
   },

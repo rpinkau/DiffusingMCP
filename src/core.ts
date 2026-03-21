@@ -8,6 +8,8 @@ import { Log } from './utils.js';
 
 const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB Limit
 
+import { Setup } from './setup.js';
+
 export class BackendManager {
   private pythonProcess: cp.ChildProcess | undefined;
   private currentModel: string | undefined;
@@ -124,7 +126,14 @@ export class BackendManager {
   }
 
   private async startBackend(model: string): Promise<void> {
-    const appdata = process.env.LOCALAPPDATA || "";
+    // Ensure venv and dependencies are ready
+    try {
+        await Setup.ensureDependencies();
+    } catch (e) {
+        Log.error(`[Backend] Failed to ensure dependencies: ${e}`);
+    }
+
+    const appdata = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
     const pythonPath = path.join(appdata, 'DiffusingData', 'venv_diffusing', 'Scripts', 'python.exe');
     
     const args = [

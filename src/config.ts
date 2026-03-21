@@ -35,4 +35,8 @@ export class Config {
   static get outputPath(): string {
     return path.join(this.projectRoot, 'output');
   }
+
+  static get requirementsPath(): string {
+    return path.join(this.projectRoot, 'requirements.txt');
+  }
 }
