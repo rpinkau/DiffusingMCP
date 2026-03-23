@@ -36,7 +36,12 @@ class McpProxy {
             type: "object",
             properties: {
               prompt: { type: "string", description: "Visual description of the image to generate" },
-              model: { type: "string", description: "Model name (e.g., Flux.1 Schnell*, SDXL, Tiny-SD)", default: "Tiny-SD" },
+              model: { 
+                type: "string", 
+                enum: ["Tiny-SD", "SD 1.5", "SDXL-Lightning", "SDXL", "Flux.1 Schnell*", "SD 3.5 Medium*"],
+                description: "Model name.", 
+                default: "Tiny-SD" 
+              },
               negative_prompt: { type: "string", description: "What to exclude from the image", default: "" },
               width: { type: "number", default: 1024 },
               height: { type: "number", default: 1024 },
