@@ -1,9 +1,15 @@
 import * as http from 'http';
+import * as path from 'path';
+import * as fs from 'fs';
 import { Config } from './config.js';
 import { BackendManager } from './core.js';
-import { GenArgs, BackendMessage } from './types.js';
+import { GenArgs, BackendMessage, GenArgsSchema } from './types.js';
 import { EventEmitter } from 'events';
 import { Log } from './utils.js';
+
+const RATE_LIMIT_WINDOW = 10000; // 10s
+const MAX_REQUESTS = 5;
+const rateLimits = new Map<string, { count: number; start: number }>();
 
 /**
  * Minimal HTTP server for VS Code extension communication.
@@ -16,8 +22,16 @@ export class HttpServer {
 
   listen(port: number) {
     const server = http.createServer(async (req, res) => {
-      // CORS
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      // Security Headers
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('X-XSS-Protection', '1; mode=block');
+
+      // CORS - Restrict to localhost:3000 as requested
+      const origin = req.headers.origin;
+      if (origin === 'http://localhost:3000' || !origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin || 'http://localhost:3000');
+      }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -25,6 +39,25 @@ export class HttpServer {
         res.writeHead(204);
         res.end();
         return;
+      }
+
+      // Rate Limiting
+      const ip = req.socket.remoteAddress || 'unknown';
+      const now = Date.now();
+      const limit = rateLimits.get(ip);
+      if (limit) {
+        if (now - limit.start < RATE_LIMIT_WINDOW) {
+          if (limit.count >= MAX_REQUESTS) {
+            res.writeHead(429, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'error', message: 'Too many requests. Please wait.' }));
+            return;
+          }
+          limit.count++;
+        } else {
+          rateLimits.set(ip, { count: 1, start: now });
+        }
+      } else {
+        rateLimits.set(ip, { count: 1, start: now });
       }
 
       // SSE Endpoint for progress and logs
@@ -55,21 +88,81 @@ export class HttpServer {
 
       // Generate Endpoint
       if (req.url === '/generate' && req.method === 'POST') {
-        let body = '';
-        req.on('data', chunk => body += chunk);
+        const chunks: Buffer[] = [];
+        req.on('data', chunk => chunks.push(chunk));
         req.on('end', async () => {
           try {
-            const args: GenArgs = JSON.parse(body);
+            const body = Buffer.concat(chunks).toString();
+            const rawArgs = JSON.parse(body);
+            
+            // Input Validation with Zod
+            const validation = GenArgsSchema.safeParse(rawArgs);
+            if (!validation.success) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ 
+                status: 'error', 
+                message: 'Invalid arguments', 
+                details: validation.error.format() 
+              }));
+              return;
+            }
+
+            const args = validation.data;
             const result = await this.backend.generate(args, (msg) => {
               this.events.emit('message', msg);
             });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(result));
           } catch (error: any) {
+            Log.error('HTTP Generate Error', error);
             res.writeHead(500);
-            res.end(JSON.stringify({ status: 'error', message: error.message }));
+            // Sanitize error message (no stack trace)
+            res.end(JSON.stringify({ status: 'error', message: 'Internal Server Error' }));
           }
         });
+        return;
+      }
+
+      // Scan Output Endpoint
+      if (req.url === '/api/scan-output' && req.method === 'GET') {
+        try {
+          const images = await this.backend.scanOutput();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'success', images }));
+        } catch (error: any) {
+          Log.error('HTTP Scan Output Error', error);
+          res.writeHead(500);
+          res.end(JSON.stringify({ status: 'error', message: 'Internal Server Error' }));
+        }
+        return;
+      }
+
+      // Static Image Serving
+      if (req.url?.startsWith('/images/') && req.method === 'GET') {
+        const filename = req.url.slice(8);
+        const fullPath = path.join(Config.outputPath, filename);
+        
+        // Security check: ensure path is within output directory
+        if (!path.resolve(fullPath).startsWith(path.resolve(Config.outputPath))) {
+          res.writeHead(403);
+          res.end("Forbidden");
+          return;
+        }
+
+        if (fs.existsSync(fullPath)) {
+          const ext = path.extname(fullPath).toLowerCase();
+          const mime: Record<string, string> = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp'
+          };
+          res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream' });
+          fs.createReadStream(fullPath).pipe(res);
+        } else {
+          res.writeHead(404);
+          res.end("Not Found");
+        }
         return;
       }
 

@@ -31,17 +31,17 @@ class McpProxy {
       tools: [
         {
           name: "generate_image",
-          description: "Generiere ein Bild lokal mit Stable Diffusion / Flux",
+          description: "Generate an image locally using Stable Diffusion / Flux",
           inputSchema: {
             type: "object",
             properties: {
-              prompt: { type: "string", description: "Beschreibung des Bildes" },
-              model: { type: "string", description: "Modell-Name (z.B. Flux.1 Schnell*, SDXL, Tiny-SD)", default: "Tiny-SD" },
-              negative_prompt: { type: "string", description: "Was nicht im Bild sein soll", default: "" },
+              prompt: { type: "string", description: "Visual description of the image to generate" },
+              model: { type: "string", description: "Model name (e.g., Flux.1 Schnell*, SDXL, Tiny-SD)", default: "Tiny-SD" },
+              negative_prompt: { type: "string", description: "What to exclude from the image", default: "" },
               width: { type: "number", default: 1024 },
               height: { type: "number", default: 1024 },
               steps: { type: "number", default: 4 },
-              seed: { type: "number", description: "Optionaler Seed" }
+              seed: { type: "number", description: "Optional seed for reproducibility" }
             },
             required: ["prompt", "model"],
           },
@@ -68,7 +68,7 @@ class McpProxy {
 
         if (result.status === "error") {
           return {
-            content: [{ type: "text", text: `Fehler: ${result.message}` }],
+            content: [{ type: "text", text: `Error: ${result.message}` }],
             isError: true,
           };
         }
@@ -77,7 +77,7 @@ class McpProxy {
           content: [
             {
               type: "text",
-              text: `Bild erfolgreich generiert.\nPfad: ${result.path}\nModell: ${args.model}\nSeed: ${result.seed}`,
+              text: `Image successfully generated.\nPath: ${result.path}\nModel: ${args.model}\nSeed: ${result.seed}`,
             },
             ...(result.base64 ? [{
               type: "image" as const,
@@ -89,7 +89,7 @@ class McpProxy {
       } catch (error: any) {
         console.error(`[MCP Proxy] Error: ${error.message}`);
         return {
-          content: [{ type: "text", text: `Fehler: ${error.message || String(error)}` }],
+          content: [{ type: "text", text: `Error: ${error.message || String(error)}` }],
           isError: true,
         };
       }
@@ -122,13 +122,13 @@ class McpProxy {
       });
 
       req.on('error', (err) => {
-        reject(new Error(`Daemon nicht erreichbar auf Port ${DAEMON_PORT}: ${err.message}. Ist der Daemon gestartet? (pm2 status)`));
+        reject(new Error(`Daemon not reachable on port ${DAEMON_PORT}: ${err.message}. Is the daemon running? (pm2 status)`));
       });
 
       // Long timeout for model loading / generation
       req.setTimeout(600_000, () => {
         req.destroy();
-        reject(new Error("Daemon-Anfrage Timeout (10 Minuten)"));
+        reject(new Error("Daemon request timeout (10 minutes)"));
       });
 
       req.write(body);

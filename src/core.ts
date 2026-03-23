@@ -3,7 +3,7 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Config } from './config.js';
-import { GenArgs, BackendMessage, GenResult } from './types.js';
+import { GenArgs, BackendMessage, GenResult, ImageInfo } from './types.js';
 import { Log } from './utils.js';
 
 const MAX_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB Limit
@@ -56,7 +56,13 @@ export class BackendManager {
               }
               const imgBase64 = fs.readFileSync(result.path, { encoding: 'base64' });
               client.destroy();
-              finishWith(() => resolve({ ...result, base64: imgBase64 } as GenResult));
+              
+              const finalResult: GenResult = { ...result, base64: imgBase64 };
+              if (!args.includeMetadata) {
+                delete finalResult.seed;
+                delete finalResult.path;
+              }
+              finishWith(() => resolve(finalResult));
             } else if (result.status === "error") {
               client.destroy();
               finishWith(() => reject(new Error(result.message || "Backend reported an error")));
@@ -64,7 +70,14 @@ export class BackendManager {
               if (result.status === 'info' && result.text) {
                 Log.info(`[Backend] ${result.text}`);
               }
-              onMessage(result);
+
+              // Sanitize message
+              const sanitized = { ...result };
+              if (!args.includeMetadata) {
+                delete sanitized.seed;
+                delete sanitized.path;
+              }
+              onMessage(sanitized);
             }
           } catch (e: any) {
             Log.error(`Parse error for line: ${line.substring(0, 50)}...`, e);
@@ -85,6 +98,65 @@ export class BackendManager {
         client.write(JSON.stringify(args) + "\n");
       });
     });
+  }
+
+  async scanOutput(): Promise<ImageInfo[]> {
+    const outputPath = Config.outputPath;
+    if (!fs.existsSync(outputPath)) return [];
+
+    try {
+        const files = await fs.promises.readdir(outputPath);
+        const imageFiles = files.filter(f => {
+            const low = f.toLowerCase();
+            return low.endsWith('.png') || low.endsWith('.jpg') || low.endsWith('.jpeg') || low.endsWith('.webp');
+        });
+        
+        const results: ImageInfo[] = [];
+
+        for (const file of imageFiles) {
+            try {
+                const fullPath = path.join(outputPath, file);
+                const stat = await fs.promises.stat(fullPath);
+                
+                // Try to find metadata in .md file
+                const mdPath = fullPath.replace(/\.[^/.]+$/, ".md");
+                let prompt = "existing";
+                let seed: string | number = "Random";
+                let model = "Unknown";
+
+                if (fs.existsSync(mdPath)) {
+                    const mdContent = fs.readFileSync(mdPath, 'utf8');
+                    const promptMatch = mdContent.match(/- \*\*Prompt\*\*: (.*)/);
+                    if (promptMatch) prompt = promptMatch[1].trim();
+
+                    const seedMatch = mdContent.match(/- \*\*Seed\*\*: (.*)/) || mdContent.match(/"seed":\s*(\d+)/);
+                    if (seedMatch) seed = seedMatch[1].trim().replace(/,/g, '');
+
+                    const modelMatch = mdContent.match(/- \*\*Model\*\*: (.*)/);
+                    if (modelMatch) model = modelMatch[1].trim();
+                }
+
+                results.push({
+                    command: "addImage",
+                    path: fullPath,
+                    prompt: prompt,
+                    seed: seed,
+                    model: model,
+                    date: stat.mtime.toLocaleString('en-US'),
+                    timestamp: stat.mtimeMs
+                });
+            } catch (err) {
+                Log.error(`Error processing file ${file}`, err);
+            }
+        }
+
+        // Sort by timestamp descending
+        results.sort((a, b) => b.timestamp - a.timestamp);
+        return results;
+    } catch (e) {
+        Log.error("Error scanning output directory", e);
+        return [];
+    }
   }
 
   private async ensureBackend(model: string): Promise<void> {
@@ -243,5 +315,13 @@ export class BackendManager {
         this.pythonProcess.kill();
       }
     }, Config.idleTimeout);
+  }
+
+  public cleanup() {
+    if (this.pythonProcess) {
+      Log.warn("Graceful shutdown: Killing Python backend.");
+      this.pythonProcess.kill();
+      this.pythonProcess = undefined;
+    }
   }
 }

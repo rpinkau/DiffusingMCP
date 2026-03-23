@@ -20,6 +20,16 @@ class Daemon {
   run() {
     this.httpServer.listen(Config.capsulePort);
     Log.info(`Daemon started. HTTP API on http://127.0.0.1:${Config.capsulePort}`);
+
+    // Graceful shutdown
+    const shutdown = () => {
+      Log.info("Daemon shutting down...");
+      this.backend.cleanup();
+      process.exit(0);
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   }
 }
 
